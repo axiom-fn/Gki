@@ -114,3 +114,30 @@ fingerprint：`alps/hal_mgvi_64_64only_armv82/mgvi_64_64only_armv82:15/AP3A.2406
 KernelSU 本身的功能（adb_root、selinux_hide、mount_hide、kernel_umount、sulog）是 KowSU 程式碼的一部分，不是這個 GKI 獨有的，LKM 模式應該也有。
 
 **如果 LKM 已經有 SUSFS：** 這個 GKI 唯一明確多出來的實用功能就是改 TTL。以 LKM 跑在原廠核心上反而比較好：保留 Oplus 的記憶體優化和原廠的 uname，也不用偽裝。
+
+## 內建 SUSFS 和 LKM 版 susfs_guard 的差別
+
+對照的模組是 `susfs_guard_lkm-android15-6.6.ko`：
+- SHA-256 `a6ecb1331fc5baf1d4f82b60ab09736b3c3d391112ed5b9a1f1b9b36ca4e19ed`
+- description `SUSFS guard LKM (susfs_guard_lkm) v2.3.0-gki`
+- vermagic `6.6.127-4k-g46a034eca005-dirty`
+
+| | GKI 內建（SUSFS v2.4.0） | LKM（susfs_guard v2.3.0） |
+|---|---|---|
+| 掛鉤方式 | 原始碼層級直接修改 VFS / proc 函式 | 執行時掛鉤：kprobe/kretprobe、tracepoint、替換 syscall table 指標、`stop_machine` 改寫核心程式碼 |
+| 找符號 | 編譯時就連結好 | 執行時掃 kallsyms 和 BTF 推算 offset（kallrecon） |
+| 效能開銷 | 不觸發時幾乎沒有 | stat/getdents/statx/maps/mountinfo 這些熱路徑每次呼叫都要經過 probe，有小額開銷 |
+| 自我隱藏 | 不需要（沒有額外模組） | 要靠 hide_modules / hide_syms 把自己從 `/proc/modules`、kallsyms 藏起來 |
+| 被偵測面 | 較小 | syscall table 被改、kprobe 痕跡，理論上偵測面較大 |
+| 相容性 | 只能用在這顆核心 | 跟著原廠核心走；如果核心更新後 layout 變了，可能要等模組更新 |
+| 功能 | sus_path/mount/kstat/map、open_redirect、uname、cmdline、avc spoof | 大致相同，另外多了 opath、create gate、hide_modules |
+
+兩者功能大致相同，差別在實作方式：內建版比較乾淨、開銷較低，LKM 版的優點是可以留在原廠核心上。
+
+## 耗電 / 功耗
+
+- 兩邊 config 的完整差異裡，**沒有任何一項跟功耗相關**。CPU 頻率調節、cpuidle、HZ、排程器選項都完全相同。
+- 字串比對發現，原廠核心的 HMBird 排程器（Oplus 自家排程器）比較新，多了 `hmbird_add_max_freq_qos_req`、`hmbird_remove_max_freq_qos_req`、`hmbird_cpu_uclamp_min_valid`、`hmbird_uclamp_dec`、`hmbird_sched_cluster`，也就是頻率 QoS 和 uclamp 的控制。**AK3 的 HMBird 版本較舊，少了這些。**
+- MTK 機型的功耗主要由 vendor 模組（cpufreq、thermal）和 Oplus 的使用者空間服務決定，GKI 能影響的部分本來就不多。
+
+**結論：沒有做功耗最佳化。** 頂多跟原廠差不多，而且因為 HMBird 較舊、少了 ks_lazy，有可能還略差。
