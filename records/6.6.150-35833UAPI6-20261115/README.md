@@ -97,3 +97,20 @@ fingerprint：`alps/hal_mgvi_64_64only_armv82/mgvi_64_64only_armv82:15/AP3A.2406
 **兩邊完全一樣的：** HZ=250、LRU_GEN、預設 TCP 擁塞控制 cubic（兩邊都有編入 BBR 但都沒設成預設）、ZRAM、CFI、SCS、模組簽章設定。
 
 **結論：** 這是一個 root 核心，不是效能核心。實際價值在於 KernelSU + SUSFS 帶來的 root 和隱藏能力。排程、記憶體、網路這些效能相關設定都沒有調整，還少了 Oplus 的記憶體優化。
+
+## 除了 SUSFS / KPM 以外的差異（逐項評估）
+
+| 項目 | 實際用途 | 評估 |
+|---|---|---|
+| `IP_NF_TARGET_TTL` / `IP6_NF_TARGET_HL` | 用 iptables 改 TTL/HL，避開電信商的熱點偵測 | **唯一實用的獨有功能**，原廠核心沒有 |
+| `NINTENDO_FF` | 讓 Switch 手把在手機上可以震動 | 小眾 |
+| `F2FS_FS_DEDUP` | Oplus 的 F2FS 去重複，要裝置樹有 `/soc/oplus,f2fs/compress_dedup` 才會啟用 | 原廠韌體沒有開，大概不會生效 |
+| `PROC_EVENTS` / `CONNECTOR` | 程序事件通知（cn_proc） | 少數守護程式會用到 |
+| `SECURITY_SAFESETID` | 限制 setuid 的 LSM | 要另外寫 policy 才有作用 |
+| 預設 qdisc 改 fq_codel | 網路佇列 | 原廠也有內建 fq_codel，root 後用 sysctl 就能改 |
+| 6.6.118 → 6.6.150 | 上游 LTS 修正 | 有，但同時少了 Oplus 的修補 |
+| `ANDROID_WRAPFD`、`MMC_PASSWORDS`、`USB_XHCI_PCI_RENESAS` | — | 手機上沒有作用 |
+
+KernelSU 本身的功能（adb_root、selinux_hide、mount_hide、kernel_umount、sulog）是 KowSU 程式碼的一部分，不是這個 GKI 獨有的，LKM 模式應該也有。
+
+**如果 LKM 已經有 SUSFS：** 這個 GKI 唯一明確多出來的實用功能就是改 TTL。以 LKM 跑在原廠核心上反而比較好：保留 Oplus 的記憶體優化和原廠的 uname，也不用偽裝。
