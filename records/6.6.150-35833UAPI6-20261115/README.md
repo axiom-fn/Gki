@@ -141,3 +141,12 @@ KernelSU 本身的功能（adb_root、selinux_hide、mount_hide、kernel_umount�
 - MTK 機型的功耗主要由 vendor 模組（cpufreq、thermal）和 Oplus 的使用者空間服務決定，GKI 能影響的部分本來就不多。
 
 **結論：沒有做功耗最佳化。** 頂多跟原廠差不多，而且因為 HMBird 較舊、少了 ks_lazy，有可能還略差。
+
+## ZRAM 風險（待實機確認）
+
+- 兩邊都是 `ZRAM=m`、`ZSMALLOC=m`，模組來自 system_dlkm，用的是原廠核心的建置金鑰簽章。
+- AK3 核心用的是自己的自動產生金鑰，`MODULE_SIG_PROTECT` 的檢查也還在（Image 裡有 `exports protected symbol` / `Protected symbol` 字串）。
+- 換上 AK3 核心後，原廠的 zsmalloc.ko 會被當成未簽章模組。如果它匯出的 `zs_*` 符號在 protected exports 清單裡，就會載入失敗，zram 跟著起不來。
+- 依賴 zram 的記憶體管理模組（例如程序壓縮）會因此失效。
+
+刷完後的檢查方式：`cat /proc/swaps` 要看到 `zram0`；`dmesg | grep -iE "protected|zsmalloc|zram"` 不應該出現錯誤。
