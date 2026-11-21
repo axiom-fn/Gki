@@ -150,3 +150,18 @@ KernelSU 本身的功能（adb_root、selinux_hide、mount_hide、kernel_umount�
 - 依賴 zram 的記憶體管理模組（例如程序壓縮）會因此失效。
 
 刷完後的檢查方式：`cat /proc/swaps` 要看到 `zram0`；`dmesg | grep -iE "protected|zsmalloc|zram"` 不應該出現錯誤。
+
+## 設備綁定（硬體 ID 白名單）
+
+**刷機包本身不做檢查**：`anykernel.sh` 裡是 `do.devicecheck=0`。限制是寫在**核心裡**，在開機時才檢查。
+
+從反組譯看到的流程（Image 檔案偏移）：
+1. **讀序號**：`early_param("oplusboot.serialno")`，handler 在 `0x1e42f10`，用 strscpy 存到全域 buffer。原廠核心沒有這個參數。
+2. **讀硬體 ID**：檢查函式在 `0x1e42f94`。它讀 bootconfig 裡的 `androidboot.` + 以下這些 key（表在 `0x16f82b0`）：
+   `chipid`、`cpuid`、`emmcid`、`hw.soc.id`、`psn`、`serialno`
+3. **雜湊比對**：把 ID 做雜湊後，跟內建白名單比對。白名單在 `0x16f5fd0`，共 8928 bytes = **279 筆 32-byte 雜湊**（熵 7.98 bits/byte，279 筆互不相同）。
+4. **防竄改**：用 CRC 對整張白名單做校驗（`0x727740`，長度 `0x22e0`），比對結果還會跟常數 XOR 混在一起，讓人難以直接 patch。
+5. **故意當機**：比對不通過，或偵測到竄改，就執行 `str 0xDEADBEEF, [0x2c1b]` 這類寫入無效位址的指令，讓核心 panic，手機開不了機。
+
+所以不在白名單裡的設備，**可以刷入，但開不了機**，會卡開機畫面或重啟循環。救援方式是用 fastboot 刷回原廠 boot（release `Boot-stock`）。
+這也代表作者事先收集了白名單設備的硬體 ID 雜湊，判斷是付費或登記制。
